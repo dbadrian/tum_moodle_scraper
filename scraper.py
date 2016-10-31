@@ -158,16 +158,44 @@ courses = get_courses(driver, args.semester)
 print " :: Collecting File Information"
 
 # now process all the courses
-file_store = []
+
 folder_queue = []
 section_queue = []
 
 for course in courses:
     print course[0], course[1]
     driver.get(course[2])
-    # driver.implicitly_wait(5)
 
+    try:
+        # 2. Recurse through folder
+        # TODO: Timeout problems?
+        folders = driver.find_elements_by_class_name("modtype_folder")
+        for folder in folders:
+            folder_href = folder.find_element_by_xpath(".//a").get_attribute('href')
+            folder_name = make_fs_string(file.find_element_by_class_name("instancename").text)
+            folder_queue.append(((course[0], os.path.join(course[1], folder_name), folder_href)))
+    except:
+        print " :: :: Folder Search Faield!!!"
+
+    # 3. Deal with sections (similar to folder)
+    # try:
+    #     # 2. Recurse through folder
+    #     # TODO: Timeout problems?
+    #     folders = driver.find_elements_by_class_name("section-summary")
+    #     for folder in folders:
+    #         link_el = folder.find_element_by_xpath(".//a")
+    #         folder_href = link_el.get_attribute('href')
+    #         folder_name = make_fs_string(link_el.text)
+    #         section_queue.append(((course[0], os.path.join(course[1], folder_name), folder_href)))
+    # except:
+    #     print " :: :: Folder Search Faield!!!"
+
+
+file_store = []
+pages = courses + folder_queue + section_queue
+for page in pages:
     # 1. Find single files
+    driver.get(course[2])
     try:
         files = driver.find_elements_by_class_name("modtype_resource")
         for file in files:
@@ -177,30 +205,6 @@ for course in courses:
     except:
         print " :: :: No Files Found!"
 
-    try:
-        # 2. Recurse through folder
-        # TODO: Timeout problems?
-        folders = driver.find_elements_by_class_name("modtype_folder")
-        for folder in folders:
-            folder_href = folder.find_element_by_xpath(".//a").get_attribute('href')
-            folder_name = make_fs_string(file.find_element_by_class_name("instancename").text)
-            folder_queue.append(((course[0], course[1], folder_name, folder_href)))
-    except:
-        print " :: :: Folder Search Faield!!!"
 
-    # 3. Deal with sections (similar to folder)
-    try:
-        # 2. Recurse through folder
-        # TODO: Timeout problems?
-        folders = driver.find_elements_by_class_name("section-summary")
-        for folder in folders:
-            link_el = folder.find_element_by_xpath(".//a")
-            folder_href = link_el.get_attribute('href')
-            folder_name = link_el.text
-            section_queue.append(((course[0], course[1], folder_name, folder_href)))
-    except:
-        print " :: :: Folder Search Faield!!!"
 
-print section_queue
-
-# print file_store
+print file_store
