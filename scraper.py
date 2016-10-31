@@ -4,8 +4,11 @@ import os
 import requests
 import argparse
 import getpass
+import menu
+import logging
 from progressbar import ProgressBar
 # from selenium.webdriver.support.ui import Select # for <SELECT> HTML form
+
 
 def make_fs_string(raw_string):
     return "_".join(raw_string.split(" ")).lower()
@@ -19,6 +22,75 @@ def mkdir_p(path):
             pass
         else:
             raise
+
+
+def tum_login(driver, user, password=""):
+    driver.get("https://www.moodle.tum.de/login/index.php")
+    a = driver.find_element_by_link_text('TUM LOGIN')
+    a.click()
+
+    # Fill the login form and submit it
+    driver.find_element_by_id('j_username').send_keys(user)
+    if password:
+        driver.find_element_by_id('j_password').send_keys(password)
+    else:
+        driver.find_element_by_id('j_password').send_keys(getpass.getpass("Please enter your password:"))
+    driver.find_element_by_id('Login').submit()
+    return driver
+
+
+def lmu_login():
+    pass
+
+
+def get_session(driver):
+    session = requests.Session()
+    cookies = driver.get_cookies()
+    for cookie in cookies:
+        session.cookies.set(cookie['name'], cookie['value'])
+
+
+def get_driver(driver_type):
+    if driver_type == "phantomjs":
+        # On Windows, use: webdriver.PhantomJS('C:\phantomjs-1.9.7-windows\phantomjs.exe')
+        driver = webdriver.PhantomJS()
+    elif driver_type == "chrome":
+        driver = webdriver.Chrome()
+    elif driver_type == "firefox":
+        driver = webdriver.Firefox()
+
+    return driver
+
+
+# But actually only looking at non-hidden is a pain, so i just filter the list
+# def set_semester(semester):
+#     if semester == "all":
+#         # Switch on to view all courses
+#         driver.find_element_by_xpath("//select[@id='coc-filterterm']/option[@value='all']").click()
+#         return True
+#     else:
+#         try:
+#             el = driver.find_element_by_xpath("//select[@id='coc-filterterm']/option[@value=\'" + semester + "\']").click()
+#         except:
+#             print "ERROR: Semester", semester, "does not exist!"
+
+
+def get_courses(driver, semester):
+    courses = driver.find_elements_by_class_name('coc-course')
+    course_list = []
+    for course in courses:
+        term = course.find_element_by_class_name("termdiv") \
+                     .get_attribute('class').split(" ")[1].split("-")
+        term = '-'.join(term[2:])
+        # Easier for now to just filter by semester (if request),
+        # than dealing with hidden-classes
+        if term == semester or semester == "all":
+            a = course.find_element_by_xpath(".//h3/a")
+            title = "_".join(a.get_attribute('title').split(" ")).lower()
+            course_list.append((term, title, a.get_attribute('href')))
+
+    return course_list
+
 
 def download_file(session, path, url):
     # NOTE the stream=True parameter
@@ -34,6 +106,21 @@ def download_file(session, path, url):
         pbar.finish()
 
 
+def download_files(session, fn_base, files):
+    # Download Files
+    for file in files:
+        print "Processing: ", file[1], file[2]
+
+        # Create Folder if it doesn't exist yet
+        path = os.path.join(fn_base, file[0], file[1])
+        mkdir_p(path)
+
+        # TODO CHECK IF FILE EXISTS ON FS BEFORE DOWNLOADING
+
+        # Download File
+        download_file(session, path, file[3])
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--fn_out', '-o', type=str, default='',
@@ -45,74 +132,75 @@ if __name__ == '__main__':
     parser.add_argument('--pw', '-p', type=str, default='',
                         help='Dev param, password will be visible',
                         required=False)
+    parser.add_argument('--semester', '-s', type=str, default='all',
+                        required=False)
+    parser.add_argument('--driver', '-d', type=str, default='phantomjs',
+                        required=False)
     args = parser.parse_args()
 
 
-driver = webdriver.Chrome()
-# On Windows, use: webdriver.PhantomJS('C:\phantomjs-1.9.7-windows\phantomjs.exe')
-
-# Service selection
-# Here I had to select my school among others
-driver.get("https://www.moodle.tum.de/login/index.php")
-a = driver.find_element_by_link_text('TUM LOGIN')
-a.click()
-
-# Fill the login form and submit it
-driver.find_element_by_id('j_username').send_keys(args.user)
-if args.pw:
-    driver.find_element_by_id('j_password').send_keys(args.pw)
-else:
-    driver.find_element_by_id('j_password').send_keys(getpass.getpass("Please enter your password:"))
-driver.find_element_by_id('Login').submit()
-
-# Prepare for crawling mode
-print "Storing Cookies"
-session = requests.Session()
-cookies = driver.get_cookies()
-for cookie in cookies:
-    session.cookies.set(cookie['name'], cookie['value'])
+# Obtain Driver
+print " :: Obtaining Driver"
+driver = get_driver(args.driver)
 
 # We are now on the course pages
-# Switch on to view all courses
-driver.find_element_by_xpath("//select[@id='coc-filterterm']/option[@value='all']").click()
+print " :: Login"
+tum_login(driver, args.user, args.pw)
 
+# print " :: Setting Semester to ", args.semester
+# set_semester(args.semester)
 
-courses = driver.find_elements_by_class_name('coc-course')
-course_list = []
-for course in courses:
-    term = course.find_element_by_class_name("termdiv").get_attribute('class').split(" ")[1].split("-")
-    year = term[-2]
-    sem = term[-1]
-    folder = year + "_" + ("sose" if sem == 1 else "wise")
-    a = course.find_element_by_xpath(".//h3/a")
-    title = "_".join(a.get_attribute('title').split(" ")).lower()
-    course_list.append((folder, title, a.get_attribute('href')))
+# Get all courses and filter by semester/all
+print " :: Getting Courses of", args.semester
+courses = get_courses(driver, args.semester)
+# print courses
+
+print " :: Collecting File Information"
 
 # now process all the courses
 file_store = []
+folder_queue = []
+section_queue = []
 
-driver.get(course_list[0][2])
+for course in courses:
+    print course[0], course[1]
+    driver.get(course[2])
+    # driver.implicitly_wait(5)
 
-# 1. Find all: Single Files
-files = driver.find_elements_by_class_name("modtype_resource")
-for file in files:
-    file_href = file.find_element_by_xpath(".//a").get_attribute('href')
-    file_name = make_fs_string(file.find_element_by_class_name("instancename").text)
-    file_store.append((course_list[0][0], course_list[0][1], file_name, file_href))
+    # 1. Find single files
+    try:
+        files = driver.find_elements_by_class_name("modtype_resource")
+        for file in files:
+            file_href = file.find_element_by_xpath(".//a").get_attribute('href')
+            file_name = make_fs_string(file.find_element_by_class_name("instancename").text)
+            file_store.append((course[0], course[1], file_name, file_href))
+    except:
+        print " :: :: No Files Found!"
 
-# 1. Find all: Folders and repeat above
+    try:
+        # 2. Recurse through folder
+        # TODO: Timeout problems?
+        folders = driver.find_elements_by_class_name("modtype_folder")
+        for folder in folders:
+            folder_href = folder.find_element_by_xpath(".//a").get_attribute('href')
+            folder_name = make_fs_string(file.find_element_by_class_name("instancename").text)
+            folder_queue.append(((course[0], course[1], folder_name, folder_href)))
+    except:
+        print " :: :: Folder Search Faield!!!"
 
+    # 3. Deal with sections (similar to folder)
+    try:
+        # 2. Recurse through folder
+        # TODO: Timeout problems?
+        folders = driver.find_elements_by_class_name("section-summary")
+        for folder in folders:
+            link_el = folder.find_element_by_xpath(".//a")
+            folder_href = link_el.get_attribute('href')
+            folder_name = link_el.text
+            section_queue.append(((course[0], course[1], folder_name, folder_href)))
+    except:
+        print " :: :: Folder Search Faield!!!"
 
-# Download Files
-base = args.fn_out
-for file in file_store:
-    print "Processing: ", file[1], file[2]
+print section_queue
 
-    # Create Folder if it doesn't exist yet
-    path = os.path.join(base, file[0], file[1])
-    mkdir_p(path)
-
-    # TODO CHECK IF FILE EXISTS ON FS BEFORE DOWNLOADING
-
-    # Download File
-    download_file(session, path, file[3])
+# print file_store
