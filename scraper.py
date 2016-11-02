@@ -152,12 +152,13 @@ courses = get_courses(driver, args.semester)
 print "   :: Found:", len(courses), "courses!"
 
 print "\n :: Collecting File Information"
+print "   :: Stage 1: Collecting Folders and Sections!"
 # First get all special cases pre-processed
 ## TODO: Should be recursive just to make sure!
 folder_queue = []
 section_queue = []
 for course in courses:
-    print "   ::", course[0], course[1]
+    print "      ::", course[0], course[1]
     driver.get(course[2])
 
     # 2. Get folders
@@ -188,7 +189,12 @@ for course in courses:
 parsed_files = []
 pages = courses + folder_queue + section_queue
 # pages = folder_queue
-for page in pages:
+print "   :: Stage 2: Collecting Links! (This might take a while)"
+
+
+
+pbar = ProgressBar(maxval=len(pages)).start()
+for idx, page in enumerate(pages):
     # 1. Find single files
     driver.get(page[2])
     try:
@@ -202,6 +208,8 @@ for page in pages:
                 pass
     except:
         print "   :: No Files Found!"
+    pbar.update(idx)
+pbar.finish()
 
 # Download files if they don't exist.
 print "\n :: Collected", len(parsed_files), "files"
