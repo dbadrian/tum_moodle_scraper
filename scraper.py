@@ -31,16 +31,16 @@ def mkdir_p(path):
 
 def tum_login(driver, user, password=""):
     driver.get("https://www.moodle.tum.de/login/index.php")
-    a = driver.find_element_by_link_text('TUM LOGIN')
+    a = driver.find_element_by_link_text("TUM LOGIN")
     a.click()
 
     # Fill the login form and submit it
-    driver.find_element_by_id('j_username').send_keys(user)
+    driver.find_element_by_name('j_username').send_keys(user)
     if password:
-        driver.find_element_by_id('j_password').send_keys(password)
+        driver.find_element_by_name('j_password').send_keys(password)
     else:
-        driver.find_element_by_id('j_password').send_keys(getpass.getpass("Please enter your password:"))
-    driver.find_element_by_id('Login').submit()
+        driver.find_element_by_id('password').send_keys(getpass.getpass("Please enter your password:"))
+    driver.find_element_by_name('_eventId_proceed').click()
     return driver
 
 
